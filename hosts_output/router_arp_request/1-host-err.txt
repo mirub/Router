@@ -1,0 +1,4 @@
+  File "./checker.py", line 38, in passive
+    status = fn(testname, packets)
+  File "/home/miru/Desktop/Anul 2/PC/Tema1/cpp/tests.py", line 214, in router_arp_request_p
+    assert ARP in packets[0], "No ARP request!"
