@@ -27,7 +27,46 @@
 #include <queue>
 #include <algorithm>
 
+int binary_search_rtable (uint32_t destination_ip, std::vector<route_table_entry> &rtable, int r, int l, int m) {
+
+    while (l <= r) { 
+        int m = l + (r - l) / 2; 
+
+		int match = 0;
+		uint32_t matching_prefix = 0;
+
+		if (rtable[m].prefix == (rtable[m].mask & destination_ip)) {
+			while (rtable[m].prefix == (rtable[m].mask & destination_ip)) {
+				m--;
+			}
+			return m + 1;
+		}
+
+        if (rtable[m].prefix <= (rtable[m].mask & destination_ip)) { 
+            r = m - 1; 
+		} else {
+            l = m + 1; 
+		}
+
+    }  
+	
+	return -1;
+}
+
 route_table_entry *get_best_route (uint32_t destination_ip, std::vector<route_table_entry> &rtable) {
+	int max_bits = 0;
+	int pos = -1;
+
+	pos = binary_search_rtable(destination_ip, rtable, rtable.size() - 1, 0, 0);
+	
+	if (pos != -1) {
+		return &rtable[pos];
+	}
+
+	return nullptr;
+}
+
+route_table_entry *get_best_route_1 (uint32_t destination_ip, std::vector<route_table_entry> &rtable) {
 	int max_bits = 0;
 	int pos = -1;
 
@@ -45,6 +84,25 @@ route_table_entry *get_best_route (uint32_t destination_ip, std::vector<route_ta
 
 	return nullptr;
 }
+
+bool ip_is_greater (route_table_entry e1, route_table_entry e2) {
+	if (e1.prefix > e2.prefix) {
+		return true;
+	} else if (e1.prefix == e2.prefix) {
+		if (e1.mask > e2.mask) {
+			return true;
+		}
+	}
+	return false;
+}
+
+bool is_gr (int a, int b) {
+	if (a > b) {
+		return true;
+	}
+	return false;
+}
+
 
 uint16_t ip_checksum(void* vdata,size_t length) {
 	// Cast the data pointer to one that can be indexed.
@@ -107,6 +165,20 @@ arp_table_entry *get_arp_entry(std::vector<arp_table_entry> &arp_table, uint32_t
 	return nullptr;
 }
 
+void modify_ip(uint8_t *ip1, uint8_t *ip2) {
+
+	uint8_t dest_ip[4];
+	memcpy(dest_ip, ip1, sizeof(uint8_t) * 4);
+	memcpy(ip1, ip2, sizeof(uint8_t) * 4);
+	memcpy(ip2, dest_ip , sizeof(uint8_t) * 4);
+}
+
+void modify_mac(uint8_t *mac1, uint8_t *mac2, uint8_t *mac3, packet m) {
+				//prev dest 	// new dest    // source
+	memcpy(mac1, mac2, sizeof(uint8_t) * 6);
+	get_interface_mac(m.interface, mac3);
+}
+
 
 int main(int argc, char *argv[]) {
 	packet m;
@@ -115,6 +187,7 @@ int main(int argc, char *argv[]) {
 	init();
 
 	std::vector<route_table_entry> rtable = parse_input_file();
+	std::sort(rtable.begin(), rtable.end(), ip_is_greater);
 	std::vector<arp_table_entry> arp_table;
 	std::queue<packet> packet_queue;
 
@@ -131,27 +204,20 @@ int main(int argc, char *argv[]) {
 		struct ether_header *eth_hdr = (struct ether_header *)m.payload;
 		
 		if (ntohs(eth_hdr->ether_type) == ETHERTYPE_ARP) {
-		
-			std::cout << "I AM HERE ARP"<<std::endl;
 			
 			struct ether_arp *arp_hdr = (struct ether_arp *)(m.payload + sizeof(struct ether_header));
 			
 			if (ntohs(arp_hdr->ea_hdr.ar_op) == ARPOP_REQUEST) {
+				// Change IPs
+				modify_ip(arp_hdr->arp_tpa, arp_hdr->arp_spa);
+
+				// Modify ARP MAC
+				modify_mac(arp_hdr->arp_tha, arp_hdr->arp_sha, arp_hdr->arp_sha, m);
 				arp_hdr->ea_hdr.ar_op = htons(ARPOP_REPLY);
-				
-				// ARP HDR
-				uint8_t dest_ip[4];
-				std::cout << "I AM HERE"<<std::endl;
-				memcpy(dest_ip, arp_hdr->arp_tpa, sizeof(uint8_t) * 4);
-				memcpy(arp_hdr->arp_tpa, arp_hdr->arp_spa, sizeof(uint8_t) * 4);
-				memcpy(arp_hdr->arp_spa, dest_ip , sizeof(uint8_t) * 4);
-				
-				memcpy(arp_hdr->arp_tha, arp_hdr->arp_sha, sizeof(uint8_t) * 6);
-				get_interface_mac(m.interface, arp_hdr->arp_sha);
+
 				// ETHER HDR
-				
-				memcpy(eth_hdr->ether_dhost, eth_hdr->ether_shost, sizeof(uint8_t) * 6);
-				get_interface_mac(m.interface, eth_hdr->ether_shost);
+				modify_mac(eth_hdr->ether_dhost, eth_hdr->ether_shost, eth_hdr->ether_shost, m);
+
 				// send pack
 				send_packet(m.interface, &m); 
 				continue;
@@ -160,13 +226,7 @@ int main(int argc, char *argv[]) {
 			std::cout<<"INAINTE DE REPLY"<<std::endl;
 
 			if (ntohs(arp_hdr->ea_hdr.ar_op) == ARPOP_REPLY) {
-				// iau struct arp
-				// ether arp scot date
-				// adaug la tabela
-				// verific coada daca e goala sau nu
-				// daca nu, forwardez pachetul
-				// modif adresele mac
-				// send pachet
+
 				std::cout<<"ARP REPLY"<<std::endl;
 				arp_table_entry new_entry;
 				memcpy(&new_entry.ip, arp_hdr->arp_spa, sizeof(uint8_t) * 4);
@@ -191,8 +251,9 @@ int main(int argc, char *argv[]) {
 					icmp_hdr->checksum = 0;
 					icmp_hdr->checksum = ip_checksum(icmp_hdr, sizeof(struct icmphdr));
 					
-					memcpy(eth_hdr->ether_dhost, eth_hdr->ether_shost, sizeof(uint8_t) * 6);
+					memcpy(eth_hdr->ether_dhost, new_entry.mac, sizeof(uint8_t) * 6);
 					get_interface_mac(pkt.interface, eth_hdr->ether_shost);
+					pkt.interface = bestEntry->interface;
 					send_packet(bestEntry->interface, &pkt);
 					continue;
 				}
@@ -236,6 +297,7 @@ int main(int argc, char *argv[]) {
 
 				m.len = sizeof(struct iphdr) + sizeof(struct icmphdr) + sizeof(ether_header);
 				std::cout<<"TTL < 1 SEND" << std::endl;
+				
 				memcpy(eth_hdr->ether_dhost, eth_hdr->ether_shost, sizeof(uint8_t) * 6);
 				get_interface_mac(m.interface, eth_hdr->ether_shost);
 				send_packet(m.interface, &m);
@@ -272,12 +334,20 @@ int main(int argc, char *argv[]) {
 			}
 
 			std::cout<<"DUPA DEST UNREACH" << std::endl;
-			uint8_t current_mac[6];
-			get_interface_mac(m.interface, current_mac);
 
-			if (icmp_hdr->type == ICMP_ECHO && std::equal(eth_hdr->ether_dhost, eth_hdr->ether_dhost + 6, current_mac)) {
-				// do stuff
+			//uint32_t current_ip = 0;;
+			//memcpy(&current_ip, get_interface_ip(m.interface), sizeof(uint8_t) * 4);
 
+			struct in_addr ip_addr1;
+    		ip_addr1.s_addr = inet_addr(get_interface_ip(m.interface));
+
+			struct in_addr ip_addr2;
+    		ip_addr2.s_addr = ip_hdr->daddr;
+
+			std::cout<<inet_ntoa(ip_addr1) <<" "<<inet_ntoa(ip_addr2)<<std::endl;
+			std::cout<<ip_addr1.s_addr<<" "<<ip_addr2.s_addr<<std::endl;
+
+			if (icmp_hdr->type == ICMP_ECHO && inet_addr(get_interface_ip(m.interface)) == ip_hdr->daddr) {
 				std::swap(ip_hdr->daddr, ip_hdr->saddr);
 				ip_hdr->ttl = 120;
 				ip_hdr->tot_len = htons(sizeof(struct iphdr) + sizeof(struct icmphdr));
@@ -317,31 +387,17 @@ int main(int argc, char *argv[]) {
 				icmp_hdr->checksum = 0;
 				icmp_hdr->checksum = ip_checksum(icmp_hdr, sizeof(struct icmphdr));
 
-				memcpy(eth_hdr->ether_dhost, eth_hdr->ether_shost, sizeof(uint8_t) * 6);
-				
+				memcpy(eth_hdr->ether_dhost, arp_entry->mac, sizeof(uint8_t) * 6);
 				get_interface_mac(bestEntry->interface, eth_hdr->ether_shost);
+				m.interface = bestEntry->interface;
+				
 				send_packet(bestEntry->interface, &m);
+				continue;
 
 			}	else {
-				// ELSE 
-				// bag pachetul in coada -
-				// iau ether_arp -
-				// copie ip_dest -
-				// mac dest pt ether_arp = 0x00 -
-				// modif fct pt ether_arp - din pachet
-				// ether_header->type = ETHERHEAD_ARP ?
-				// arp_header = arp req -
-				// #define	arp_hrd	ea_hdr.ar_hrd = htons(0x01) -
-				// #define	arp_pro	ea_hdr.ar_pro = htons(eth_p_ip) -
-				// #define	arp_hln	ea_hdr.ar_hln = 6 -
-				// #define	arp_pln	ea_hdr.ar_pln = 4 -
-				// #define	arp_op	ea_hdr.ar_op = htons(ARPOP_REQUEST) -
-				// BROADCAST: - trim pe toate interfetele ARP_REQUEST
-				// setez pe mac_dest = 0xFF - ether_header ?
-				// dim = size ether_arp + size ip_hdr
-				// AFLA INTERFATA
 
 				std::cout<<"SA TE FUT IN GURA"<<std::endl;
+				m.interface = bestEntry->interface;
 				packet_queue.push(m);
 				struct ether_arp *arp_hdr = (struct ether_arp *)(m.payload + sizeof(struct ether_header));
 
@@ -349,7 +405,7 @@ int main(int argc, char *argv[]) {
 				memcpy(&ip_dest, &ip_hdr->daddr, sizeof(uint8_t) * 4);
 
 				arp_hdr->ea_hdr.ar_op = htons(ARPOP_REQUEST);
-				arp_hdr->ea_hdr.ar_hrd = htons(0x01);
+				arp_hdr->ea_hdr.ar_hrd = htons(1);
 				arp_hdr->ea_hdr.ar_pro = htons(ETH_P_IP);
 				arp_hdr->ea_hdr.ar_hln = 6;
 				arp_hdr->ea_hdr.ar_pln = 4;
