@@ -1,0 +1,45 @@
+Student: Banu Miruna-Elena
+Group: 321CA
+
+Description:
+
+This project represents a simplified version of a router that receives 2 types
+of packet protocols: ARP and IP.
+
+In the beginning, I have implemented the parsing of the Routing Table and 
+created the structure that was going to serve as it throughout the program.
+
+Then I have sorted the vector decreasingly by the prefix and the mask. This
+method has then been used at the Binary Search function to return the best
+route for the received IP since it was the most efficient way. (O(log n)) The
+search function checks if there is a match for the routing table entry:
+- if there is one, it looks fo the biggest mask that saisfies the condition;
+- if there is not, if the prefix is smaller than ip_dest & mask, search for a
+bigger prefix match, else for a smaller one.
+
+Upon receiving the packet, the ethernet header has been extracted and the type
+has been checked:
+
+- if it is an ARP-type protocol:
+	- an ether_arp header is extracted as well
+	- the type of the ether_arp is ckeched:
+		- if it is an ARP_REQUEST, the router would send an ARP_REPLY packet
+		that would give the requesting device the mac on the interface it
+		requests
+		- if it is an ARP_REPLY, the router would add a new entry to the ARP
+		table and forward the enqueued packets to their destination
+
+- if it is an IP-type protocol:
+	- extract the ip_header and the icmp_header
+	- check the new checksum if it is equal to the old one, else drops the packet
+	- check the ttl - if the packet is about to expire drop it and send a
+	TIME_EXCEEDED ICMP packet to the source
+	- check if the router is able to send the packet further - if there is not a
+	match in the routing table, send a DEST_UNREACH ICMP packet to the source
+	- check if the packet is an ECHO ICMP packet intended for the router - if so,
+	send an ECHO_REPLY ICMP packet to the source
+	- if none of the above-mentioned cases happen, then the router would check
+	if there is an ARP-entry
+		- if so, forward the packet
+		- else, add the packet to the queue and send an ARP_REQUEST message on the
+		interface of the best routin table match;  
