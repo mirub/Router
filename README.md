@@ -1,8 +1,5 @@
 # Router
 
-Student: Banu Miruna-Elena
-Group: 321CA
-
 Description:
 
 This project represents a simplified version of a router that receives 2 types
